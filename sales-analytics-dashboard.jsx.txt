@@ -1,0 +1,458 @@
+import React, { useState, useMemo } from "react";
+import {
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from "recharts";
+
+/* ---------------------------------------------------------
+   TOKENS
+--------------------------------------------------------- */
+const COLORS = {
+  bg: "#0F1815",
+  panel: "#16211D",
+  panelAlt: "#1C2924",
+  line: "#2A3A34",
+  paper: "#EFEAE0",
+  paperDim: "#A8B3AC",
+  gold: "#CBA135",
+  goldDim: "#8A742A",
+  teal: "#3FA796",
+  coral: "#E2725B",
+  slate: "#7C9187",
+};
+
+const SEGMENT_COLORS = ["#CBA135", "#3FA796", "#E2725B", "#7C9187"];
+
+const FONT_IMPORT = `
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+`;
+
+/* ---------------------------------------------------------
+   MOCK DATA GENERATION (deterministic — seeded, not Math.random)
+--------------------------------------------------------- */
+const MONTHS = ["Jul25", "Aug25", "Sep25", "Oct25", "Nov25", "Dec25", "Jan26", "Feb26", "Mar26", "Apr26", "May26", "Jun26"];
+const CATEGORIES = ["Hardware", "Software", "Services", "Accessories"];
+const SEGMENTS = ["Enterprise", "Mid-Market", "SMB", "Individual"];
+const PRODUCTS = [
+  { name: "Nimbus Pro Suite", category: "Software" },
+  { name: "Aether Sensor Kit", category: "Hardware" },
+  { name: "Vantage Analytics", category: "Software" },
+  { name: "Forge Workstation", category: "Hardware" },
+  { name: "Onboarding & Support", category: "Services" },
+  { name: "Relay Connector Pack", category: "Accessories" },
+  { name: "Custom Integration", category: "Services" },
+  { name: "Pulse Mobile Kit", category: "Accessories" },
+];
+
+/* ---------------------------------------------------------
+   GEOGRAPHY REFERENCE DATA (real countries & states/provinces,
+   grouped under each dashboard region). Administrative level 1
+   (states/provinces) only — true district-level (level 2/3) data
+   for every country runs into the tens of thousands of entries
+   and isn't reliable to hand-author, so it's intentionally left
+   out here rather than risk inventing districts that don't exist.
+--------------------------------------------------------- */
+const GEO_DATA = {
+  "North America": {
+    "United States": ["California", "Texas", "New York", "Florida", "Illinois", "Washington", "Massachusetts", "Georgia", "Colorado", "Ohio"],
+    "Canada": ["Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba", "Nova Scotia"],
+    "Mexico": ["Ciudad de México", "Jalisco", "Nuevo León", "Puebla", "Yucatán", "Baja California"],
+  },
+  "Europe": {
+    "United Kingdom": ["England", "Scotland", "Wales", "Northern Ireland"],
+    "Germany": ["Bavaria", "North Rhine-Westphalia", "Berlin", "Hesse", "Baden-Württemberg"],
+    "France": ["Île-de-France", "Auvergne-Rhône-Alpes", "Provence-Alpes-Côte d'Azur", "Nouvelle-Aquitaine"],
+    "Netherlands": ["North Holland", "South Holland", "Utrecht", "North Brabant"],
+    "Spain": ["Madrid", "Catalonia", "Andalusia", "Valencia"],
+    "Italy": ["Lombardy", "Lazio", "Veneto", "Tuscany"],
+    "Sweden": ["Stockholm", "Västra Götaland", "Skåne"],
+    "Poland": ["Masovian", "Lesser Poland", "Silesian"],
+  },
+  "APAC": {
+    "India": ["Maharashtra", "Karnataka", "Tamil Nadu", "Delhi", "Telangana", "Uttar Pradesh", "Gujarat", "West Bengal"],
+    "China": ["Guangdong", "Shanghai", "Beijing", "Jiangsu", "Zhejiang", "Sichuan"],
+    "Japan": ["Tokyo", "Osaka", "Kanagawa", "Aichi", "Hokkaido"],
+    "Australia": ["New South Wales", "Victoria", "Queensland", "Western Australia"],
+    "South Korea": ["Seoul", "Gyeonggi", "Busan"],
+    "Singapore": ["Central Region", "East Region", "West Region", "North Region", "North-East Region"],
+    "Indonesia": ["Jakarta", "West Java", "East Java", "Bali"],
+  },
+  "LATAM": {
+    "Brazil": ["São Paulo", "Rio de Janeiro", "Minas Gerais", "Bahia", "Paraná"],
+    "Argentina": ["Buenos Aires", "Córdoba", "Santa Fe", "Mendoza"],
+    "Chile": ["Santiago Metropolitan", "Valparaíso", "Biobío"],
+    "Colombia": ["Bogotá D.C.", "Antioquia", "Valle del Cauca"],
+    "Peru": ["Lima", "Arequipa", "Cusco"],
+  },
+};
+const REGION_LIST = Object.keys(GEO_DATA);
+
+function seeded(seed) {
+  let s = seed;
+  return () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+const rnd = seeded(42);
+
+function buildTransactions() {
+  const rows = [];
+  let id = 1;
+  MONTHS.forEach((month, mi) => {
+    const seasonal = 1 + 0.18 * Math.sin((mi / 12) * Math.PI * 2 + 1) + mi * 0.015;
+    const txCount = Math.floor(22 + rnd() * 10);
+    for (let i = 0; i < txCount; i++) {
+      const product = PRODUCTS[Math.floor(rnd() * PRODUCTS.length)];
+      const region = REGION_LIST[Math.floor(rnd() * REGION_LIST.length)];
+      const countries = Object.keys(GEO_DATA[region]);
+      const country = countries[Math.floor(rnd() * countries.length)];
+      const states = GEO_DATA[region][country];
+      const state = states[Math.floor(rnd() * states.length)];
+      const segment = SEGMENTS[Math.floor(rnd() * SEGMENTS.length)];
+      const baseRevenue = (600 + rnd() * 5200) * seasonal;
+      const marginRate = product.category === "Software" ? 0.62 + rnd() * 0.15
+        : product.category === "Services" ? 0.45 + rnd() * 0.15
+        : product.category === "Hardware" ? 0.28 + rnd() * 0.12
+        : 0.35 + rnd() * 0.1;
+      const revenue = Math.round(baseRevenue);
+      const profit = Math.round(revenue * marginRate);
+      rows.push({
+        id: id++, month, monthIndex: mi, product: product.name,
+        category: product.category, region, country, state, segment, revenue, profit,
+      });
+    }
+  });
+  return rows;
+}
+const TRANSACTIONS = buildTransactions();
+
+/* ---------------------------------------------------------
+   HELPERS
+--------------------------------------------------------- */
+const fmtUSD = (n) => `$${Math.round(n).toLocaleString("en-US")}`;
+const fmtUSDk = (n) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
+const fmtPct = (n) => `${n.toFixed(1)}%`;
+
+function Select({ label, value, onChange, options }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 150 }}>
+      <span style={{
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em",
+        textTransform: "uppercase", color: COLORS.paperDim,
+      }}>{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          background: COLORS.panelAlt, color: COLORS.paper, border: `1px solid ${COLORS.line}`,
+          borderRadius: 4, padding: "8px 10px", fontFamily: "'Inter', sans-serif", fontSize: 13,
+          outline: "none", cursor: "pointer",
+        }}
+      >
+        <option value="All">All</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function KpiCard({ label, value, delta, deltaGood, accent }) {
+  return (
+    <div style={{
+      background: COLORS.panel, border: `1px solid ${COLORS.line}`, borderRadius: 6,
+      padding: "18px 20px", flex: 1, minWidth: 160, position: "relative", overflow: "hidden",
+    }}>
+      <div style={{
+        position: "absolute", top: 0, left: 0, width: 3, height: "100%", background: accent,
+      }} />
+      <div style={{
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em",
+        textTransform: "uppercase", color: COLORS.paperDim, marginBottom: 10,
+      }}>{label}</div>
+      <div style={{
+        fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 500, color: COLORS.paper,
+        lineHeight: 1,
+      }}>{value}</div>
+      {delta !== undefined && (
+        <div style={{
+          marginTop: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12,
+          color: deltaGood ? COLORS.teal : COLORS.coral,
+        }}>
+          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}% vs prior period
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Panel({ title, eyebrow, children, style }) {
+  return (
+    <div style={{
+      background: COLORS.panel, border: `1px solid ${COLORS.line}`, borderRadius: 6,
+      padding: "20px 22px 16px", ...style,
+    }}>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em",
+          textTransform: "uppercase", color: COLORS.gold, marginBottom: 4,
+        }}>{eyebrow}</div>
+        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: COLORS.paper, fontWeight: 500 }}>
+          {title}
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const tooltipStyle = {
+  background: "#1C2924", border: `1px solid ${COLORS.line}`, borderRadius: 4,
+  fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.paper, padding: "8px 12px",
+};
+
+/* ---------------------------------------------------------
+   MAIN DASHBOARD
+--------------------------------------------------------- */
+export default function SalesDashboard() {
+  const [region, setRegionRaw] = useState("All");
+  const [country, setCountryRaw] = useState("All");
+  const [state, setState] = useState("All");
+  const [category, setCategory] = useState("All");
+  const [segment, setSegment] = useState("All");
+  const [range, setRange] = useState("12M");
+
+  // Cascading resets: changing a parent geography level clears its children
+  const setRegion = (v) => { setRegionRaw(v); setCountryRaw("All"); setState("All"); };
+  const setCountry = (v) => { setCountryRaw(v); setState("All"); };
+
+  const countryOptions = region === "All"
+    ? Object.values(GEO_DATA).flatMap((c) => Object.keys(c))
+    : Object.keys(GEO_DATA[region]);
+  const stateOptions = country === "All"
+    ? (region === "All" ? [] : Object.values(GEO_DATA[region]).flat())
+    : GEO_DATA[region] ? GEO_DATA[region][country] || [] : [];
+
+  const monthWindow = range === "3M" ? 3 : range === "6M" ? 6 : 12;
+  const activeMonths = MONTHS.slice(MONTHS.length - monthWindow);
+
+  const matches = (t) =>
+    (region === "All" || t.region === region) &&
+    (country === "All" || t.country === country) &&
+    (state === "All" || t.state === state) &&
+    (category === "All" || t.category === category) &&
+    (segment === "All" || t.segment === segment);
+
+  const filtered = useMemo(() => {
+    return TRANSACTIONS.filter((t) => matches(t) && activeMonths.includes(t.month));
+  }, [region, country, state, category, segment, range]);
+
+  const prevWindowFiltered = useMemo(() => {
+    // comparison window immediately preceding the active window, same length
+    const startIdx = MONTHS.length - monthWindow;
+    const prevMonths = MONTHS.slice(Math.max(0, startIdx - monthWindow), startIdx);
+    return TRANSACTIONS.filter((t) => matches(t) && prevMonths.includes(t.month));
+  }, [region, country, state, category, segment, range]);
+
+  const totalRevenue = filtered.reduce((s, t) => s + t.revenue, 0);
+  const totalProfit = filtered.reduce((s, t) => s + t.profit, 0);
+  const margin = totalRevenue ? (totalProfit / totalRevenue) * 100 : 0;
+  const orders = filtered.length;
+  const aov = orders ? totalRevenue / orders : 0;
+
+  const prevRevenue = prevWindowFiltered.reduce((s, t) => s + t.revenue, 0);
+  const prevProfit = prevWindowFiltered.reduce((s, t) => s + t.profit, 0);
+  const revDelta = prevRevenue ? ((totalRevenue - prevRevenue) / prevRevenue) * 100 : 0;
+  const profitDelta = prevProfit ? ((totalProfit - prevProfit) / prevProfit) * 100 : 0;
+
+  const monthlyTrend = useMemo(() => {
+    return activeMonths.map((m) => {
+      const rows = filtered.filter((t) => t.month === m);
+      return {
+        month: m,
+        revenue: rows.reduce((s, t) => s + t.revenue, 0),
+        profit: rows.reduce((s, t) => s + t.profit, 0),
+      };
+    });
+  }, [filtered, range]);
+
+  const topProducts = useMemo(() => {
+    const map = {};
+    filtered.forEach((t) => { map[t.product] = (map[t.product] || 0) + t.revenue; });
+    return Object.entries(map)
+      .map(([name, revenue]) => ({ name, revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 6);
+  }, [filtered]);
+
+  const segmentation = useMemo(() => {
+    const map = {};
+    filtered.forEach((t) => { map[t.segment] = (map[t.segment] || 0) + t.revenue; });
+    return Object.entries(map).map(([name, value]) => ({ name, value }));
+  }, [filtered]);
+
+  const profitByCategory = useMemo(() => {
+    const map = {};
+    filtered.forEach((t) => {
+      if (!map[t.category]) map[t.category] = { revenue: 0, profit: 0 };
+      map[t.category].revenue += t.revenue;
+      map[t.category].profit += t.profit;
+    });
+    return Object.entries(map).map(([name, v]) => ({
+      name, marginPct: v.revenue ? (v.profit / v.revenue) * 100 : 0, profit: v.profit,
+    })).sort((a, b) => b.profit - a.profit);
+  }, [filtered]);
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: COLORS.bg, color: COLORS.paper,
+      fontFamily: "'Inter', sans-serif", padding: "28px 32px 60px",
+    }}>
+      <style>{FONT_IMPORT}</style>
+
+      {/* Header */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "flex-end",
+        marginBottom: 26, borderBottom: `1px solid ${COLORS.line}`, paddingBottom: 20,
+      }}>
+        <div>
+          <div style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.16em",
+            textTransform: "uppercase", color: COLORS.gold, marginBottom: 6,
+          }}>Sales Performance Ledger</div>
+          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 32, fontWeight: 500 }}>
+            Sales Analytics Dashboard
+          </div>
+        </div>
+        <div style={{
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: COLORS.paperDim,
+          textAlign: "right",
+        }}>
+          {activeMonths[0]} — {activeMonths[activeMonths.length - 1]}<br />
+          {orders.toLocaleString()} orders in view
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{
+        display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end",
+        marginBottom: 24, padding: "16px 20px", background: COLORS.panelAlt,
+        border: `1px solid ${COLORS.line}`, borderRadius: 6,
+      }}>
+        <Select label="Region" value={region} onChange={setRegion} options={REGION_LIST} />
+        <Select label="Country" value={country} onChange={setCountry} options={countryOptions} />
+        <Select label="State / Province" value={state} onChange={setState} options={stateOptions} />
+        <Select label="Category" value={category} onChange={setCategory} options={CATEGORIES} />
+        <Select label="Segment" value={segment} onChange={setSegment} options={SEGMENTS} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em",
+            textTransform: "uppercase", color: COLORS.paperDim,
+          }}>Range</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["3M", "6M", "12M"].map((r) => (
+              <button key={r} onClick={() => setRange(r)} style={{
+                background: range === r ? COLORS.gold : "transparent",
+                color: range === r ? "#12201B" : COLORS.paper,
+                border: `1px solid ${range === r ? COLORS.gold : COLORS.line}`,
+                borderRadius: 4, padding: "8px 14px", fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 12, cursor: "pointer",
+              }}>{r}</button>
+            ))}
+          </div>
+        </div>
+        {(region !== "All" || country !== "All" || state !== "All" || category !== "All" || segment !== "All") && (
+          <button onClick={() => { setRegion("All"); setCategory("All"); setSegment("All"); }} style={{
+            background: "transparent", color: COLORS.coral, border: `1px solid ${COLORS.coral}`,
+            borderRadius: 4, padding: "8px 14px", fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: 12, cursor: "pointer", marginLeft: "auto",
+          }}>Clear filters</button>
+        )}
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
+        <KpiCard label="Total Revenue" value={fmtUSD(totalRevenue)} delta={revDelta} deltaGood={revDelta >= 0} accent={COLORS.gold} />
+        <KpiCard label="Total Profit" value={fmtUSD(totalProfit)} delta={profitDelta} deltaGood={profitDelta >= 0} accent={COLORS.teal} />
+        <KpiCard label="Profit Margin" value={fmtPct(margin)} accent={COLORS.slate} />
+        <KpiCard label="Orders" value={orders.toLocaleString()} accent={COLORS.paperDim} />
+        <KpiCard label="Avg Order Value" value={fmtUSD(aov)} accent={COLORS.coral} />
+      </div>
+
+      {/* Monthly trend */}
+      <Panel eyebrow="Trend · Revenue & Profit" title="Monthly Sales Performance" style={{ marginBottom: 20 }}>
+        <ResponsiveContainer width="100%" height={280}>
+          <AreaChart data={monthlyTrend} margin={{ top: 4, right: 12, left: -12, bottom: 0 }}>
+            <defs>
+              <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="profGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLORS.teal} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={COLORS.teal} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke={COLORS.line} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="month" stroke={COLORS.paperDim} fontSize={11} fontFamily="IBM Plex Mono" tickLine={false} />
+            <YAxis stroke={COLORS.paperDim} fontSize={11} fontFamily="IBM Plex Mono" tickFormatter={fmtUSDk} tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v) => fmtUSD(v)} />
+            <Legend wrapperStyle={{ fontFamily: "IBM Plex Mono", fontSize: 12 }} />
+            <Area type="monotone" dataKey="revenue" name="Revenue" stroke={COLORS.gold} fill="url(#revGrad)" strokeWidth={2} />
+            <Area type="monotone" dataKey="profit" name="Profit" stroke={COLORS.teal} fill="url(#profGrad)" strokeWidth={2} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Panel>
+
+      {/* Row: Top products + Segmentation */}
+      <div style={{ display: "flex", gap: 20, marginBottom: 20, flexWrap: "wrap" }}>
+        <Panel eyebrow="Ranked by revenue" title="Top Products" style={{ flex: 1.3, minWidth: 340 }}>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={topProducts} layout="vertical" margin={{ top: 4, right: 24, left: 10, bottom: 0 }}>
+              <CartesianGrid stroke={COLORS.line} strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" stroke={COLORS.paperDim} fontSize={11} fontFamily="IBM Plex Mono" tickFormatter={fmtUSDk} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" stroke={COLORS.paperDim} fontSize={11.5} fontFamily="Inter" width={150} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v) => fmtUSD(v)} />
+              <Bar dataKey="revenue" fill={COLORS.gold} radius={[0, 4, 4, 0]} barSize={16} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+
+        <Panel eyebrow="Share of revenue" title="Customer Segmentation" style={{ flex: 1, minWidth: 300 }}>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie data={segmentation} dataKey="value" nameKey="name" innerRadius={62} outerRadius={95} paddingAngle={2}>
+                {segmentation.map((_, i) => <Cell key={i} fill={SEGMENT_COLORS[i % SEGMENT_COLORS.length]} stroke={COLORS.panel} strokeWidth={2} />)}
+              </Pie>
+              <Tooltip contentStyle={tooltipStyle} formatter={(v) => fmtUSD(v)} />
+              <Legend wrapperStyle={{ fontFamily: "IBM Plex Mono", fontSize: 11.5 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Panel>
+      </div>
+
+      {/* Profit analysis */}
+      <Panel eyebrow="By category" title="Profit Analysis">
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={profitByCategory} margin={{ top: 4, right: 12, left: -12, bottom: 0 }}>
+            <CartesianGrid stroke={COLORS.line} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" stroke={COLORS.paperDim} fontSize={11.5} fontFamily="Inter" tickLine={false} />
+            <YAxis yAxisId="left" stroke={COLORS.paperDim} fontSize={11} fontFamily="IBM Plex Mono" tickFormatter={fmtUSDk} axisLine={false} tickLine={false} />
+            <YAxis yAxisId="right" orientation="right" stroke={COLORS.paperDim} fontSize={11} fontFamily="IBM Plex Mono" tickFormatter={(v) => `${v}%`} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => n === "marginPct" ? fmtPct(v) : fmtUSD(v)} />
+            <Legend wrapperStyle={{ fontFamily: "IBM Plex Mono", fontSize: 12 }} />
+            <Bar yAxisId="left" dataKey="profit" name="Profit ($)" fill={COLORS.teal} radius={[4, 4, 0, 0]} barSize={40} />
+            <Bar yAxisId="right" dataKey="marginPct" name="Margin (%)" fill={COLORS.coral} radius={[4, 4, 0, 0]} barSize={40} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Panel>
+
+      <div style={{
+        marginTop: 28, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5,
+        color: COLORS.paperDim, textAlign: "center", letterSpacing: "0.04em",
+      }}>
+        Figures reflect sample transaction data · filters apply across all panels in real time
+      </div>
+    </div>
+  );
+}
